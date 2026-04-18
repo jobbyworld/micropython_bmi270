@@ -622,7 +622,7 @@ def _set_any_motion_config(config, dev):
     feat_config[sa + 2] = w1 & 0xFF
     feat_config[sa + 3] = (w1 >> 8) & 0xFF
     decoded = (feat_config[sa + 2] | (feat_config[sa + 3] << 8)) & 0x07FF
-    print("AnyMotion: bytes[sa:sa+4]=%s threshold_12bit=%d" % (list(feat_config[sa:sa+4]), decoded))
+    #print("AnyMotion: bytes[sa:sa+4]=%s threshold_12bit=%d" % (list(feat_config[sa:sa+4]), decoded))
     rslt = bmi2_set_regs(BMI2_FEATURES_REG_ADDR, feat_config, BMI2_FEAT_SIZE_IN_BYTES, dev)
     if aps == BMI2_ENABLE:
         bmi2_set_adv_power_save(BMI2_ENABLE, dev)
@@ -662,7 +662,7 @@ def _set_no_motion_config(config, dev):
     feat_config[sa + 2] = w1 & 0xFF
     feat_config[sa + 3] = (w1 >> 8) & 0xFF
     decoded = (feat_config[sa + 2] | (feat_config[sa + 3] << 8)) & 0x07FF
-    print("NoMotion:  bytes[sa:sa+4]=%s threshold_12bit=%d" % (list(feat_config[sa:sa+4]), decoded))
+    #print("NoMotion:  bytes[sa:sa+4]=%s threshold_12bit=%d" % (list(feat_config[sa:sa+4]), decoded))
     rslt = bmi2_set_regs(BMI2_FEATURES_REG_ADDR, feat_config, BMI2_FEAT_SIZE_IN_BYTES, dev)
     if aps == BMI2_ENABLE:
         bmi2_set_adv_power_save(BMI2_ENABLE, dev)
