@@ -30,6 +30,8 @@ import utime
 from machine import I2C, Pin
 
 from bmi2_defs import (
+    BMI2_ANY_MOTION,
+    BMI2_NO_MOTION,
     BMI2_OK,
     BMI2_E_INVALID_INPUT,
     BMI2_E_NULL_PTR,
@@ -93,6 +95,8 @@ from bmi2_defs import (
     BMI2_GYR_OFF_COMP_MSB_Z_MASK,
     BMI2_GYR_OFF_COMP_MSB_Z_POS,
     BMI2_AUX_IF_TRIM,
+    Bmi2AnyMotionConfig,
+    Bmi2NoMotionConfig,
     Bmi2SensData,
     Bmi2SensConfig,
     Bmi2IntPinConfig,
@@ -124,6 +128,8 @@ from bmi2 import (
     bmi2_set_fifo_wm,
 )
 from bmi270 import (
+    _set_any_motion_config,
+    _set_no_motion_config,
     bmi270_init,
     bmi270_sensor_enable,
     bmi270_sensor_disable,
@@ -1170,3 +1176,81 @@ class BMI270:
             dev.delay_us(period_us, intf_ptr)
         """
         utime.sleep_us(period_us)
+
+    # ------------------------------------------------------------------
+    # AddOns
+    # ------------------------------------------------------------------
+    def configureAnyMotion(self,duration=5,threshold=170,select_x=BMI2_ENABLE,select_y=BMI2_ENABLE,select_z=BMI2_ENABLE):
+        # Configure any-motion : 100 ms (duration=5), seuil 83 mg (threshold=170), axes XYZ
+        # duration  : en unités de 20 ms → 5 × 20 ms = 100 ms
+        # threshold : en unités de 0.4883 mg → 170 × 0.4883 mg ≈ 83 mg
+        config = Bmi2AnyMotionConfig()
+        config.duration = duration
+        config.threshold = threshold
+        config.select_x = select_x
+        config.select_y = select_y
+        config.select_z = select_z
+        return _set_any_motion_config(config, self._dev)
+        
+
+    def configureNoMotion(self,duration=5,threshold=170,select_x=BMI2_ENABLE,select_y=BMI2_ENABLE,select_z=BMI2_ENABLE):
+        # Configure no-motion : 100 ms (duration=5), seuil 83 mg (threshold=170), axes XYZ
+        #  Set the "no motion" config. Default values:
+        # 
+        # .duration  - 5 = 100ms
+        # .threshold - 144 = 70mg
+        # .select_x  - Enabled
+        # .select_y  - Enabled
+        # .select_z  - Enabled
+        config = Bmi2NoMotionConfig()
+        config.duration = duration
+        config.threshold = threshold
+        config.select_x = select_x
+        config.select_y = select_y
+        config.select_z = select_z
+        rslt = _set_no_motion_config(config, self._dev)
+       
+        return rslt
+
+    def get_major_axis(self):
+        self.getSensorData()
+        ax, ay, az = self.data.accelX, self.data.accelY, self.data.accelZ
+        max_val = max(abs(ax), abs(ay), abs(az))
+        if max_val == abs(ax):
+            return BMI2_AXIS_POS_X if ax > 0 else BMI2_AXIS_NEG_X
+        elif max_val == abs(ay):
+            return BMI2_AXIS_POS_Y if ay > 0 else BMI2_AXIS_NEG_Y
+        elif max_val == abs(az):
+            return BMI2_AXIS_POS_Z if az > 0 else BMI2_AXIS_NEG_Z
+        
+    def configureInterrupts(self,interrupts):
+        """
+        install your handler
+        int_pin = Pin(INTERRUPT_PIN, Pin.IN)
+        int_pin.irq(trigger=Pin.IRQ_FALLING, handler=interrupt_handler)
+        """
+        for i in interrupts:
+            assert i in [BMI2_ANY_MOTION_INT,BMI2_NO_MOTION_INT,
+                         BMI2_SIG_MOTION_INT,BMI2_STEP_COUNTER_INT,
+                         BMI2_STEP_ACTIVITY_INT,BMI2_WRIST_GESTURE_INT,
+                         BMI2_WRIST_WEAR_WAKE_UP_INT, ]
+
+            rslt = self.mapInterruptToPin(i, BMI2_INT1)
+            if rslt != BMI2_OK:
+                raise Exception("Failed to map interrupt to pin")
+
+
+        intPinConfig = Bmi2IntPinConfig()
+        intPinConfig.pin_type = BMI2_INT1
+        intPinConfig.int_latch = BMI2_INT_NON_LATCH
+        intPinConfig.pin_cfg[0].lvl       = BMI2_INT_ACTIVE_LOW
+        intPinConfig.pin_cfg[0].od        = BMI2_INT_PUSH_PULL
+        intPinConfig.pin_cfg[0].output_en = BMI2_INT_OUTPUT_ENABLE
+        intPinConfig.pin_cfg[0].input_en  = BMI2_INT_INPUT_DISABLE
+        rslt = self.setInterruptPinConfig(intPinConfig)
+        if rslt != BMI2_OK:
+            raise Exception("Failed to configure interrupt pin")
+        #return rslt
+
+        
+

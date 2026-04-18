@@ -597,8 +597,15 @@ def _set_any_motion_config(config, dev):
     fc = Bmi2FeatureConfig()
     if not bmi2_extract_input_feat_config(fc, BMI2_ANY_MOTION, dev):
         return BMI2_E_INVALID_SENSOR
+    aps = dev.aps_status
+    if aps == BMI2_ENABLE:
+        rslt = bmi2_set_adv_power_save(BMI2_DISABLE, dev)
+        if rslt != BMI2_OK:
+            return rslt
     rslt, feat_config = bmi2_get_feat_config(fc.page, dev)
     if rslt != BMI2_OK:
+        if aps == BMI2_ENABLE:
+            bmi2_set_adv_power_save(BMI2_ENABLE, dev)
         return rslt
     sa = fc.start_addr
     # Word 0 : duration + axis select
@@ -614,7 +621,12 @@ def _set_any_motion_config(config, dev):
     w1 = bmi2_set_bit_pos0(w1, BMI2_ANY_NO_MOT_THRES_MASK, config.threshold)
     feat_config[sa + 2] = w1 & 0xFF
     feat_config[sa + 3] = (w1 >> 8) & 0xFF
-    return bmi2_set_regs(BMI2_FEATURES_REG_ADDR, feat_config, BMI2_FEAT_SIZE_IN_BYTES, dev)
+    decoded = (feat_config[sa + 2] | (feat_config[sa + 3] << 8)) & 0x07FF
+    print("AnyMotion: bytes[sa:sa+4]=%s threshold_12bit=%d" % (list(feat_config[sa:sa+4]), decoded))
+    rslt = bmi2_set_regs(BMI2_FEATURES_REG_ADDR, feat_config, BMI2_FEAT_SIZE_IN_BYTES, dev)
+    if aps == BMI2_ENABLE:
+        bmi2_set_adv_power_save(BMI2_ENABLE, dev)
+    return rslt
 
 
 def _set_no_motion_config(config, dev):
@@ -625,8 +637,15 @@ def _set_no_motion_config(config, dev):
     fc = Bmi2FeatureConfig()
     if not bmi2_extract_input_feat_config(fc, BMI2_NO_MOTION, dev):
         return BMI2_E_INVALID_SENSOR
+    aps = dev.aps_status
+    if aps == BMI2_ENABLE:
+        rslt = bmi2_set_adv_power_save(BMI2_DISABLE, dev)
+        if rslt != BMI2_OK:
+            return rslt
     rslt, feat_config = bmi2_get_feat_config(fc.page, dev)
     if rslt != BMI2_OK:
+        if aps == BMI2_ENABLE:
+            bmi2_set_adv_power_save(BMI2_ENABLE, dev)
         return rslt
     sa = fc.start_addr
     # Word 0 : duration + axis select
@@ -642,7 +661,12 @@ def _set_no_motion_config(config, dev):
     w1 = bmi2_set_bit_pos0(w1, BMI2_ANY_NO_MOT_THRES_MASK, config.threshold)
     feat_config[sa + 2] = w1 & 0xFF
     feat_config[sa + 3] = (w1 >> 8) & 0xFF
-    return bmi2_set_regs(BMI2_FEATURES_REG_ADDR, feat_config, BMI2_FEAT_SIZE_IN_BYTES, dev)
+    decoded = (feat_config[sa + 2] | (feat_config[sa + 3] << 8)) & 0x07FF
+    print("NoMotion:  bytes[sa:sa+4]=%s threshold_12bit=%d" % (list(feat_config[sa:sa+4]), decoded))
+    rslt = bmi2_set_regs(BMI2_FEATURES_REG_ADDR, feat_config, BMI2_FEAT_SIZE_IN_BYTES, dev)
+    if aps == BMI2_ENABLE:
+        bmi2_set_adv_power_save(BMI2_ENABLE, dev)
+    return rslt
 
 
 def bmi270_set_sensor_config(sens_cfg_list, dev):
