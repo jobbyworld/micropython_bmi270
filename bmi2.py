@@ -93,6 +93,16 @@ from bmi2_defs import (
     BMI2_INT_OPEN_DRAIN_MASK, BMI2_INT_OPEN_DRAIN_POS,
     BMI2_INT_OUTPUT_EN_MASK, BMI2_INT_OUTPUT_EN_POS,
     BMI2_INT_INPUT_EN_MASK, BMI2_INT_INPUT_EN_POS,
+    # Registres FIFO
+    BMI2_FIFO_LENGTH_0_ADDR, BMI2_FIFO_DATA_ADDR,
+    BMI2_FIFO_DOWNS_ADDR, BMI2_FIFO_WTM_0_ADDR,
+    BMI2_FIFO_CONFIG_0_ADDR,
+    BMI2_FIFO_CONFIG_0_MASK,
+    BMI2_ACC_FIFO_DOWNS_MASK, BMI2_ACC_FIFO_DOWNS_POS,
+    BMI2_GYR_FIFO_DOWNS_MASK,
+    BMI2_ACC_FIFO_FILT_DATA_MASK, BMI2_ACC_FIFO_FILT_DATA_POS,
+    BMI2_GYR_FIFO_FILT_DATA_MASK, BMI2_GYR_FIFO_FILT_DATA_POS,
+    BMI2_FIFO_SELF_WAKE_UP_MASK, BMI2_FIFO_SELF_WAKE_UP_POS,
     # Utilitaires macros -> fonctions
     bmi2_set_bits, bmi2_get_bits,
     bmi2_set_bit_pos0, bmi2_get_bit_pos0, bmi2_set_bit_val0,
@@ -1061,3 +1071,132 @@ def bmi2_set_remap_axes(remapped_axis, dev):
     dev.remap.z_axis_sign = BMI2_NEG_SIGN if remap.z_axis_sign == BMI2_MAP_NEGATIVE else BMI2_POS_SIGN
 
     return _set_remap_axes(remap, dev)
+
+
+# ---------------------------------------------------------------------------
+# FIFO
+# ---------------------------------------------------------------------------
+
+def bmi2_set_fifo_config(flags, enable, dev):
+    """Active ou désactive des bits de configuration FIFO.
+
+    flags  : combinaison de BMI2_FIFO_ACC_EN, BMI2_FIFO_GYR_EN, etc.
+    enable : BMI2_ENABLE (1) pour activer, BMI2_DISABLE (0) pour désactiver.
+
+    Les bits 0-1  de flags → registre FIFO_CONFIG_0 (0x48).
+    Les bits 8-15 de flags → registre FIFO_CONFIG_1 (0x49).
+    """
+    rslt = _null_ptr_check(dev)
+    if rslt != BMI2_OK:
+        return rslt
+
+    rslt, raw = bmi2_get_regs(BMI2_FIFO_CONFIG_0_ADDR, 2, dev)
+    if rslt != BMI2_OK:
+        return rslt
+
+    cfg0 = raw[0]
+    cfg1 = raw[1]
+
+    bits0 = flags & BMI2_FIFO_CONFIG_0_MASK   # bits 0-1 → FIFO_CONFIG_0
+    bits1 = (flags >> 8) & 0xFF               # bits 8-15 → FIFO_CONFIG_1
+
+    if enable:
+        cfg0 = (cfg0 | bits0) & 0xFF
+        cfg1 = (cfg1 | bits1) & 0xFF
+    else:
+        cfg0 = (cfg0 & ~bits0) & 0xFF
+        cfg1 = (cfg1 & ~bits1) & 0xFF
+
+    return bmi2_set_regs(BMI2_FIFO_CONFIG_0_ADDR, bytes([cfg0, cfg1]), 2, dev)
+
+
+def bmi2_get_fifo_length(dev):
+    """Retourne (rslt, length_bytes) — nombre d'octets présents dans le FIFO."""
+    rslt = _null_ptr_check(dev)
+    if rslt != BMI2_OK:
+        return rslt, 0
+    rslt, raw = bmi2_get_regs(BMI2_FIFO_LENGTH_0_ADDR, 2, dev)
+    if rslt != BMI2_OK:
+        return rslt, 0
+    length = raw[0] | ((raw[1] & 0x3F) << 8)
+    return BMI2_OK, length
+
+
+def bmi2_read_fifo_data(length_bytes, dev):
+    """Lit `length_bytes` octets depuis FIFO_DATA.
+
+    Retourne (rslt, bytearray).
+    """
+    rslt = _null_ptr_check(dev)
+    if rslt != BMI2_OK:
+        return rslt, None
+    if length_bytes == 0:
+        return BMI2_OK, bytearray()
+    rslt, data = bmi2_get_regs(BMI2_FIFO_DATA_ADDR, length_bytes, dev)
+    if rslt != BMI2_OK:
+        return rslt, None
+    return BMI2_OK, bytearray(data)
+
+
+def bmi2_set_fifo_down_sample(sensor, down_sample, dev):
+    """Configure le facteur de sous-échantillonnage FIFO pour un capteur.
+
+    sensor      : BMI2_ACCEL ou BMI2_GYRO
+    down_sample : 0..7 (0=÷1, 1=÷2, 2=÷4, 3=÷8, 4=÷16, 5=÷32, 6=÷64, 7=÷128)
+    """
+    rslt, raw = bmi2_get_regs(BMI2_FIFO_DOWNS_ADDR, 1, dev)
+    if rslt != BMI2_OK:
+        return rslt
+    reg = raw[0]
+    if sensor == BMI2_ACCEL:
+        reg = bmi2_set_bits(reg, BMI2_ACC_FIFO_DOWNS_MASK, BMI2_ACC_FIFO_DOWNS_POS, down_sample)
+    elif sensor == BMI2_GYRO:
+        reg = bmi2_set_bit_pos0(reg, BMI2_GYR_FIFO_DOWNS_MASK, down_sample)
+    else:
+        return BMI2_E_INVALID_SENSOR
+    return bmi2_set_regs(BMI2_FIFO_DOWNS_ADDR, bytes([reg]), 1, dev)
+
+
+def bmi2_set_fifo_filter_data(sensor, filter_en, dev):
+    """Active/désactive le filtrage des données dans le FIFO (registre FIFO_DOWNS).
+
+    sensor    : BMI2_ACCEL ou BMI2_GYRO
+    filter_en : BMI2_ENABLE (1) ou BMI2_DISABLE (0)
+    """
+    rslt, raw = bmi2_get_regs(BMI2_FIFO_DOWNS_ADDR, 1, dev)
+    if rslt != BMI2_OK:
+        return rslt
+    reg = raw[0]
+    if sensor == BMI2_ACCEL:
+        reg = bmi2_set_bits(reg, BMI2_ACC_FIFO_FILT_DATA_MASK,
+                            BMI2_ACC_FIFO_FILT_DATA_POS, filter_en)
+    elif sensor == BMI2_GYRO:
+        reg = bmi2_set_bits(reg, BMI2_GYR_FIFO_FILT_DATA_MASK,
+                            BMI2_GYR_FIFO_FILT_DATA_POS, filter_en)
+    else:
+        return BMI2_E_INVALID_SENSOR
+    return bmi2_set_regs(BMI2_FIFO_DOWNS_ADDR, bytes([reg]), 1, dev)
+
+
+def bmi2_set_fifo_self_wake_up(enable, dev):
+    """Active/désactive le mode FIFO self wake-up (bit 1 de PWR_CONF 0x7C)."""
+    rslt, raw = bmi2_get_regs(BMI2_PWR_CONF_ADDR, 1, dev)
+    if rslt != BMI2_OK:
+        return rslt
+    reg = bmi2_set_bits(raw[0], BMI2_FIFO_SELF_WAKE_UP_MASK,
+                        BMI2_FIFO_SELF_WAKE_UP_POS, enable)
+    return bmi2_set_regs(BMI2_PWR_CONF_ADDR, bytes([reg]), 1, dev)
+
+
+def bmi2_set_fifo_wm(watermark_bytes, dev):
+    """Configure le watermark du FIFO en nombre d'octets.
+
+    Écrit les registres FIFO_WTM_0 (0x46) et FIFO_WTM_1 (0x47).
+    watermark_bytes : 0..8191 (13 bits).
+    """
+    rslt = _null_ptr_check(dev)
+    if rslt != BMI2_OK:
+        return rslt
+    wm_low  = watermark_bytes & 0xFF
+    wm_high = (watermark_bytes >> 8) & 0x1F
+    return bmi2_set_regs(BMI2_FIFO_WTM_0_ADDR, bytes([wm_low, wm_high]), 2, dev)

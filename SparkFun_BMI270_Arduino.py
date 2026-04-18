@@ -37,6 +37,7 @@ from bmi2_defs import (
     BMI2_I2C_PRIM_ADDR,
     BMI2_I2C_SEC_ADDR,
     BMI2_I2C_INTF,
+    BMI2_SPI_INTF,
     BMI2_ENABLE,
     BMI2_DISABLE,
     BMI2_ACCEL,
@@ -70,6 +71,28 @@ from bmi2_defs import (
     BMI2_ACC_SELF_TEST_AMP_POS,
     BMI2_ACC_X_LSB_ADDR,
     BMI2_ACC_NUM_BYTES,
+    BMI2_FIFO_ACC_EN,
+    BMI2_FIFO_GYR_EN,
+    BMI2_FIFO_HEADER_EN,
+    BMI2_FIFO_FLUSH_CMD,
+    BMI2_FWM_INT,
+    BMI2_FWM_INT_STATUS_MASK,
+    BMI2_NVM_CONF_ADDR,
+    BMI2_NVM_PROG_CMD,
+    BMI2_NVM_UNLOCK_ENABLE,
+    BMI2_NVM_UNLOCK_DISABLE,
+    BMI2_ACC_OFF_COMP_0_ADDR,
+    BMI2_GYR_OFF_COMP_3_ADDR,
+    BMI2_GYR_OFF_COMP_6_ADDR,
+    BMI2_NV_ACC_OFFSET_MASK,
+    BMI2_NV_ACC_OFFSET_POS,
+    BMI2_GYR_OFF_COMP_EN_MASK,
+    BMI2_GYR_OFF_COMP_MSB_X_MASK,
+    BMI2_GYR_OFF_COMP_MSB_Y_MASK,
+    BMI2_GYR_OFF_COMP_MSB_Y_POS,
+    BMI2_GYR_OFF_COMP_MSB_Z_MASK,
+    BMI2_GYR_OFF_COMP_MSB_Z_POS,
+    BMI2_AUX_IF_TRIM,
     Bmi2SensData,
     Bmi2SensConfig,
     Bmi2IntPinConfig,
@@ -91,6 +114,14 @@ from bmi2 import (
     bmi2_set_remap_axes,
     bmi2_set_adv_power_save,
     bmi2_soft_reset,
+    bmi2_set_command_register,
+    bmi2_set_fifo_config,
+    bmi2_get_fifo_length,
+    bmi2_read_fifo_data,
+    bmi2_set_fifo_down_sample,
+    bmi2_set_fifo_filter_data,
+    bmi2_set_fifo_self_wake_up,
+    bmi2_set_fifo_wm,
 )
 from bmi270 import (
     bmi270_init,
@@ -110,6 +141,32 @@ from bmi270 import (
     BMI270_STEP_CNT_STATUS_MASK,
     BMI270_STEP_ACT_STATUS_MASK,
 )
+
+# ---------------------------------------------------------------------------
+# Facteurs de sous-échantillonnage FIFO (définis dans SparkFun_BMI270_Arduino_Library.h)
+# ---------------------------------------------------------------------------
+BMI2_FIFO_DOWN_SAMPLE_1   = 0
+BMI2_FIFO_DOWN_SAMPLE_2   = 1
+BMI2_FIFO_DOWN_SAMPLE_4   = 2
+BMI2_FIFO_DOWN_SAMPLE_8   = 3
+BMI2_FIFO_DOWN_SAMPLE_16  = 4
+BMI2_FIFO_DOWN_SAMPLE_32  = 5
+BMI2_FIFO_DOWN_SAMPLE_64  = 6
+BMI2_FIFO_DOWN_SAMPLE_128 = 7
+
+# ---------------------------------------------------------------------------
+# Constantes de direction de gravité pour performAccelOffsetCalibration
+# ---------------------------------------------------------------------------
+BMI2_GRAVITY_X    = 0x01
+BMI2_GRAVITY_Y    = 0x02
+BMI2_GRAVITY_Z    = 0x04
+BMI2_GRAVITY_POS  = 0x08
+BMI2_GRAVITY_POS_X = BMI2_GRAVITY_X | BMI2_GRAVITY_POS   # 0x09
+BMI2_GRAVITY_POS_Y = BMI2_GRAVITY_Y | BMI2_GRAVITY_POS   # 0x0A
+BMI2_GRAVITY_POS_Z = BMI2_GRAVITY_Z | BMI2_GRAVITY_POS   # 0x0C
+BMI2_GRAVITY_NEG_X = BMI2_GRAVITY_X                       # 0x01
+BMI2_GRAVITY_NEG_Y = BMI2_GRAVITY_Y                       # 0x02
+BMI2_GRAVITY_NEG_Z = BMI2_GRAVITY_Z                       # 0x04
 
 # ---------------------------------------------------------------------------
 # Constantes d'offset pour les sources d'interruption feature
@@ -152,6 +209,35 @@ BMI2_AXIS_NEG_Z = 0x0C   # -Z (0x04 | 0x08)
 _DEFAULT_SCL_PIN  = 8
 _DEFAULT_SDA_PIN  = 10
 _DEFAULT_I2C_FREQ = 400_000   # 400 kHz
+
+
+# ---------------------------------------------------------------------------
+# Configuration FIFO (équivalent BMI270_FIFOConfig)
+# ---------------------------------------------------------------------------
+
+class BMI270_FIFOConfig:
+    """Paramètres de configuration du buffer FIFO du BMI270.
+
+    Attributs :
+        flags          : combinaison de BMI2_FIFO_ACC_EN et/ou BMI2_FIFO_GYR_EN.
+        watermark      : nombre de trames avant déclenchement de l'interruption.
+        accelDownSample : facteur de sous-échantillonnage accel (BMI2_FIFO_DOWN_SAMPLE_*).
+        gyroDownSample  : facteur de sous-échantillonnage gyro.
+        accelFilter    : BMI2_ENABLE pour données filtrées, BMI2_DISABLE pour brutes.
+        gyroFilter     : idem pour le gyroscope.
+        selfWakeUp     : BMI2_ENABLE pour autoriser la lecture FIFO en low-power.
+    """
+    __slots__ = ('flags', 'watermark', 'accelDownSample', 'gyroDownSample',
+                 'accelFilter', 'gyroFilter', 'selfWakeUp')
+
+    def __init__(self):
+        self.flags           = BMI2_FIFO_ACC_EN | BMI2_FIFO_GYR_EN
+        self.watermark       = 5
+        self.accelDownSample = BMI2_FIFO_DOWN_SAMPLE_1
+        self.gyroDownSample  = BMI2_FIFO_DOWN_SAMPLE_1
+        self.accelFilter     = BMI2_ENABLE
+        self.gyroFilter      = BMI2_ENABLE
+        self.selfWakeUp      = BMI2_ENABLE
 
 
 # ---------------------------------------------------------------------------
@@ -198,6 +284,9 @@ class BMI270:
         self._raw_to_deg_sec = 0.0
         self._i2c  = _i2c
         self._i2c_addr = BMI2_I2C_PRIM_ADDR
+        # FIFO state
+        self._fifo_flags          = 0
+        self._fifo_bytes_per_frame = 0
 
     # ------------------------------------------------------------------
     # Initialisation
@@ -240,6 +329,41 @@ class BMI270:
         # Callbacks I2C ─ bmi2.py les appelle via dev.read / dev.write / dev.delay_us
         self._dev.read     = self._read_registers_i2c
         self._dev.write    = self._write_registers_i2c
+        self._dev.delay_us = self._us_delay
+
+        return self._begin()
+
+    def beginSPI(self, cs_pin, freq=100_000, spi_id=1,
+                 sck_pin=None, mosi_pin=None, miso_pin=None):
+        """Initialise la communication SPI et le capteur.
+
+        cs_pin  : numéro GPIO du chip select (CS).
+        freq    : fréquence SPI en Hz (défaut 100 000).
+        spi_id  : identifiant du bus SPI MicroPython (défaut 1).
+        sck_pin, mosi_pin, miso_pin : broches SCK/MOSI/MISO (optionnel sur ESP32).
+
+        Returns:
+            int8_t -- BMI2_OK (0) en cas de succès, code négatif sinon.
+        """
+        from machine import SPI, Pin as _Pin
+
+        self._cs = _Pin(cs_pin, _Pin.OUT, value=1)
+
+        spi_kwargs = {'baudrate': freq, 'polarity': 0, 'phase': 0}
+        if sck_pin is not None:
+            spi_kwargs['sck']  = _Pin(sck_pin)
+        if mosi_pin is not None:
+            spi_kwargs['mosi'] = _Pin(mosi_pin)
+        if miso_pin is not None:
+            spi_kwargs['miso'] = _Pin(miso_pin)
+        self._spi = SPI(spi_id, **spi_kwargs)
+
+        self._dev.intf      = BMI2_SPI_INTF
+        self._dev.dummy_byte = 1   # BMI270 SPI insère 1 octet muet sur les lectures
+        self._dev.read_write_len = 32
+
+        self._dev.read     = self._read_registers_spi
+        self._dev.write    = self._write_registers_spi
         self._dev.delay_us = self._us_delay
 
         return self._begin()
@@ -457,7 +581,7 @@ class BMI270:
 
         # -- 1. Prépare l'accéléromètre --
         bmi270_sensor_enable([BMI2_ACCEL], dev)
-        dev.delay_us(1000, None)
+        dev.delay_us(1000)
 
         # Amplitude haute pour le self-test
         rslt, b = _read_st()
@@ -475,7 +599,7 @@ class BMI270:
         cfg.cfg.acc.filter_perf = BMI2_PERF_OPT_MODE
         cfg.cfg.acc.range       = BMI2_ACC_RANGE_16G
         bmi270_set_sensor_config([cfg], dev)
-        dev.delay_us(3000, None)
+        dev.delay_us(3000)
 
         # -- 2. Polarité positive (sign=0) --
         rslt, b = _read_st()
@@ -484,7 +608,7 @@ class BMI270:
         b = bmi2_set_bit_pos0(b, BMI2_ACC_SELF_TEST_EN_MASK, BMI2_ENABLE)
         b = bmi2_set_bits(b, BMI2_ACC_SELF_TEST_SIGN_MASK, BMI2_ACC_SELF_TEST_SIGN_POS, 0)
         _write_st(b)
-        dev.delay_us(51000, None)
+        dev.delay_us(51000)
 
         rslt, raw = bmi2_get_regs(BMI2_ACC_X_LSB_ADDR, BMI2_ACC_NUM_BYTES, dev)
         if rslt != BMI2_OK:
@@ -499,7 +623,7 @@ class BMI270:
             return rslt
         b = bmi2_set_bits(b, BMI2_ACC_SELF_TEST_SIGN_MASK, BMI2_ACC_SELF_TEST_SIGN_POS, 1)
         _write_st(b)
-        dev.delay_us(51000, None)
+        dev.delay_us(51000)
 
         rslt, raw = bmi2_get_regs(BMI2_ACC_X_LSB_ADDR, BMI2_ACC_NUM_BYTES, dev)
         if rslt != BMI2_OK:
@@ -560,6 +684,338 @@ class BMI270:
         Returns: int8_t code d'erreur.
         """
         return bmi270_reset_step_count(self._dev)
+
+    # ------------------------------------------------------------------
+    # FIFO
+    # ------------------------------------------------------------------
+
+    def setFIFOConfig(self, config):
+        """Configure le buffer FIFO (BMI270_FIFOConfig).
+
+        config : instance de BMI270_FIFOConfig.
+        Returns: int8_t code d'erreur.
+        """
+        dev = self._dev
+
+        # Calcul du nombre d'octets par trame
+        bpf = 0
+        bpf += 6 if (config.flags & BMI2_FIFO_ACC_EN) else 0
+        bpf += 6 if (config.flags & BMI2_FIFO_GYR_EN) else 0
+        bpf += 1 if (config.flags & BMI2_FIFO_HEADER_EN) else 0
+        self._fifo_bytes_per_frame = bpf if bpf > 0 else 12
+        self._fifo_flags = config.flags
+
+        # Active les flags demandés, désactive les autres
+        rslt = bmi2_set_fifo_config(config.flags, BMI2_ENABLE, dev)
+        if rslt != BMI2_OK:
+            return rslt
+        disable_flags = (~config.flags) & 0xFFFF
+        rslt = bmi2_set_fifo_config(disable_flags, BMI2_DISABLE, dev)
+        if rslt != BMI2_OK:
+            return rslt
+
+        rslt = bmi2_set_fifo_down_sample(BMI2_ACCEL, config.accelDownSample, dev)
+        if rslt != BMI2_OK:
+            return rslt
+        rslt = bmi2_set_fifo_down_sample(BMI2_GYRO, config.gyroDownSample, dev)
+        if rslt != BMI2_OK:
+            return rslt
+
+        rslt = bmi2_set_fifo_filter_data(BMI2_ACCEL, config.accelFilter, dev)
+        if rslt != BMI2_OK:
+            return rslt
+        rslt = bmi2_set_fifo_filter_data(BMI2_GYRO, config.gyroFilter, dev)
+        if rslt != BMI2_OK:
+            return rslt
+
+        rslt = bmi2_set_fifo_self_wake_up(config.selfWakeUp, dev)
+        if rslt != BMI2_OK:
+            return rslt
+
+        wm_bytes = config.watermark * self._fifo_bytes_per_frame
+        return bmi2_set_fifo_wm(wm_bytes, dev)
+
+    def getFIFOLength(self):
+        """Retourne le nombre de trames actuellement dans le FIFO.
+
+        Returns: (rslt, num_samples).
+        """
+        rslt, length_bytes = bmi2_get_fifo_length(self._dev)
+        if rslt != BMI2_OK:
+            return rslt, 0
+        bpf = self._fifo_bytes_per_frame if self._fifo_bytes_per_frame > 0 else 12
+        return BMI2_OK, length_bytes // bpf
+
+    def getFIFOData(self, num_samples):
+        """Lit des trames du buffer FIFO et les convertit.
+
+        num_samples : nombre maximum de trames à lire.
+
+        Returns:
+            (rslt, samples_read, list_of_BMI270_SensorData).
+        """
+        dev = self._dev
+        bpf = self._fifo_bytes_per_frame if self._fifo_bytes_per_frame > 0 else 12
+
+        rslt, fifo_bytes = bmi2_get_fifo_length(dev)
+        if rslt != BMI2_OK:
+            return rslt, 0, []
+
+        num_frames = fifo_bytes // bpf
+        if num_samples > num_frames:
+            num_samples = num_frames
+        if num_samples == 0:
+            return BMI2_OK, 0, []
+
+        rslt, raw = bmi2_read_fifo_data(fifo_bytes, dev)
+        if rslt != BMI2_OK:
+            return rslt, 0, []
+
+        def _s16(v):
+            return v - 0x10000 if v >= 0x8000 else v
+
+        s_acc = self._raw_to_gs
+        s_gyr = self._raw_to_deg_sec
+        samples = []
+
+        for i in range(num_samples):
+            base = i * bpf
+            sample = BMI270_SensorData()
+            off = base
+
+            if self._fifo_flags & BMI2_FIFO_ACC_EN:
+                sample.accelX = _s16(raw[off] | (raw[off+1] << 8)) * s_acc
+                sample.accelY = _s16(raw[off+2] | (raw[off+3] << 8)) * s_acc
+                sample.accelZ = _s16(raw[off+4] | (raw[off+5] << 8)) * s_acc
+                off += 6
+
+            if self._fifo_flags & BMI2_FIFO_GYR_EN:
+                sample.gyroX = _s16(raw[off] | (raw[off+1] << 8)) * s_gyr
+                sample.gyroY = _s16(raw[off+2] | (raw[off+3] << 8)) * s_gyr
+                sample.gyroZ = _s16(raw[off+4] | (raw[off+5] << 8)) * s_gyr
+
+            samples.append(sample)
+
+        return BMI2_OK, len(samples), samples
+
+    def flushFIFO(self):
+        """Vide le buffer FIFO.
+
+        Returns: int8_t code d'erreur.
+        """
+        return bmi2_set_command_register(BMI2_FIFO_FLUSH_CMD, self._dev)
+
+    # ------------------------------------------------------------------
+    # Calibration et NVM
+    # ------------------------------------------------------------------
+
+    def performAccelOffsetCalibration(self, gravity_dir):
+        """Calibration FOC (Fast Offset Calibration) de l'accéléromètre.
+
+        Le capteur doit rester immobile, un axe aligné avec la gravité.
+
+        gravity_dir : constante BMI2_GRAVITY_POS_X/Y/Z ou BMI2_GRAVITY_NEG_X/Y/Z.
+
+        Returns: int8_t code d'erreur.
+        """
+        dev = self._dev
+
+        # Sauvegarde config actuelle
+        cfg = Bmi2SensConfig()
+        cfg.type = BMI2_ACCEL
+        bmi2_get_sensor_config([cfg], dev)
+        saved_range = cfg.cfg.acc.range
+
+        # Passage en ±2g pour la calibration
+        cfg.cfg.acc.range = BMI2_ACC_RANGE_2G
+        bmi270_set_sensor_config([cfg], dev)
+        dev.delay_us(5000)
+
+        # Valeurs attendues (16-bit, ±2g → 1g = 16384 LSB)
+        lsb_per_g = 16384
+        pos = bool(gravity_dir & BMI2_GRAVITY_POS)
+        g_x = (lsb_per_g if pos else -lsb_per_g) if (gravity_dir & BMI2_GRAVITY_X) else 0
+        g_y = (lsb_per_g if pos else -lsb_per_g) if (gravity_dir & BMI2_GRAVITY_Y) else 0
+        g_z = (lsb_per_g if pos else -lsb_per_g) if (gravity_dir & BMI2_GRAVITY_Z) else 0
+
+        # Lecture de 128 échantillons (~50Hz)
+        n = 128
+        sx = sy = sz = 0
+        for _ in range(n):
+            rslt = bmi2_get_sensor_data(self._raw, dev)
+            if rslt != BMI2_OK:
+                return rslt
+            sx += self._raw.acc.x
+            sy += self._raw.acc.y
+            sz += self._raw.acc.z
+            dev.delay_us(20000)
+
+        avg_x = sx // n
+        avg_y = sy // n
+        avg_z = sz // n
+
+        # Conversion en registres d'offset (résolution 0.0039g = 1/256g)
+        # à ±2g : 1 LSB offset_reg = 1/256g, 1 LSB raw16 = 1/16384g → scale=64
+        scale = 64
+        def _clamp(v):
+            return max(-128, min(127, v))
+
+        off_x = _clamp(-(avg_x - g_x) // scale)
+        off_y = _clamp(-(avg_y - g_y) // scale)
+        off_z = _clamp(-(avg_z - g_z) // scale)
+
+        data = bytes([off_x & 0xFF, off_y & 0xFF, off_z & 0xFF])
+        rslt = bmi2_set_regs(BMI2_ACC_OFF_COMP_0_ADDR, data, 3, dev)
+        if rslt != BMI2_OK:
+            return rslt
+
+        # Active la compensation d'offset accéléromètre (bit BMI2_NV_ACC_OFFSET_MASK)
+        rslt, reg = bmi2_get_regs(BMI2_GYR_OFF_COMP_6_ADDR, 1, dev)
+        if rslt != BMI2_OK:
+            return rslt
+        new_reg = bmi2_set_bits(reg[0], BMI2_NV_ACC_OFFSET_MASK,
+                                BMI2_NV_ACC_OFFSET_POS, BMI2_ENABLE)
+        rslt = bmi2_set_regs(BMI2_GYR_OFF_COMP_6_ADDR, bytes([new_reg]), 1, dev)
+        if rslt != BMI2_OK:
+            return rslt
+
+        # Restaure la plage originale
+        cfg.cfg.acc.range = saved_range
+        bmi270_set_sensor_config([cfg], dev)
+        return BMI2_OK
+
+    def performGyroOffsetCalibration(self):
+        """Calibration FOC du gyroscope (doit être immobile).
+
+        Returns: int8_t code d'erreur.
+        """
+        dev = self._dev
+
+        # Lecture de 128 échantillons
+        n = 128
+        sx = sy = sz = 0
+        for _ in range(n):
+            rslt = bmi2_get_sensor_data(self._raw, dev)
+            if rslt != BMI2_OK:
+                return rslt
+            sx += self._raw.gyr.x
+            sy += self._raw.gyr.y
+            sz += self._raw.gyr.z
+            dev.delay_us(5000)   # 5ms ≈ 200Hz
+
+        avg_x = sx // n
+        avg_y = sy // n
+        avg_z = sz // n
+
+        # Registres gyro offset : 10-bit signé, résolution ~0.061°/s
+        # Scaling : raw16 à ±2000°/s → 1LSB = 1/16 °/s
+        # offset reg 10-bit : 1LSB ≈ 0.061°/s ≈ 1/16 °/s
+        # Pour simplifier : diviseur ~270 (empirique pour ±2000°/s)
+        scale = 270
+        def _clamp10(v):
+            return max(-512, min(511, v))
+
+        off_x = _clamp10(-avg_x // scale)
+        off_y = _clamp10(-avg_y // scale)
+        off_z = _clamp10(-avg_z // scale)
+
+        # LSBs (8 bits bas)
+        data = bytes([off_x & 0xFF, off_y & 0xFF, off_z & 0xFF])
+        rslt = bmi2_set_regs(BMI2_GYR_OFF_COMP_3_ADDR, data, 3, dev)
+        if rslt != BMI2_OK:
+            return rslt
+
+        # MSBs (2 bits hauts par axe) + activation compensation
+        msb = (((off_x >> 8) & 0x03) |
+               (((off_y >> 8) & 0x03) << BMI2_GYR_OFF_COMP_MSB_Y_POS) |
+               (((off_z >> 8) & 0x03) << BMI2_GYR_OFF_COMP_MSB_Z_POS))
+        rslt, reg = bmi2_get_regs(BMI2_GYR_OFF_COMP_6_ADDR, 1, dev)
+        if rslt != BMI2_OK:
+            return rslt
+        new_reg = (reg[0] & ~(BMI2_GYR_OFF_COMP_MSB_X_MASK |
+                               BMI2_GYR_OFF_COMP_MSB_Y_MASK |
+                               BMI2_GYR_OFF_COMP_MSB_Z_MASK)) | msb
+        new_reg = new_reg | BMI2_GYR_OFF_COMP_EN_MASK
+        return bmi2_set_regs(BMI2_GYR_OFF_COMP_6_ADDR, bytes([new_reg & 0xFF]), 1, dev)
+
+    def performComponentRetrim(self):
+        """Effectue le réétalonnage composant (CRT) du gyroscope.
+
+        Note: le CRT complet (bmi2_do_crt) nécessite un fichier config CRT
+        spécifique et une machine d'état matérielle complexe. Cette implémentation
+        MicroPython effectue uniquement la séquence de préparation basique.
+
+        Returns: BMI2_OK (la gyroscope reste actif après appel).
+        """
+        # Le CRT matériel n'est pas implémenté dans ce portage MicroPython.
+        # Il faudrait charger le fichier bmi270_crt_config (≈2Ko) et piloter
+        # le CRT_GYRO_SELF_TEST feature via les pages feature.
+        raise NotImplementedError(
+            "Le CRT nécessite bmi2_do_crt() qui dépend d'un fichier config CRT "
+            "séparé, non inclus dans ce portage."
+        )
+
+    def saveNVM(self):
+        """Sauvegarde les valeurs de calibration dans la NVM du capteur.
+
+        ATTENTION : la NVM du BMI270 ne supporte que 14 cycles d'écriture au TOTAL!
+
+        Returns: int8_t code d'erreur.
+        """
+        dev = self._dev
+
+        # Déverrouille la NVM
+        rslt = bmi2_set_regs(BMI2_NVM_CONF_ADDR,
+                              bytes([BMI2_NVM_UNLOCK_ENABLE]), 1, dev)
+        if rslt != BMI2_OK:
+            return rslt
+
+        # Déclenche la programmation NVM
+        rslt = bmi2_set_command_register(BMI2_NVM_PROG_CMD, dev)
+        if rslt != BMI2_OK:
+            return rslt
+
+        # Attend la fin de la programmation (~14ms)
+        dev.delay_us(14000)
+
+        # Reverrouille la NVM
+        bmi2_set_regs(BMI2_NVM_CONF_ADDR,
+                      bytes([BMI2_NVM_UNLOCK_DISABLE]), 1, dev)
+        return BMI2_OK
+
+    # ------------------------------------------------------------------
+    # Interface I2C auxiliaire (stub — nécessite le driver bmi2_aux)
+    # ------------------------------------------------------------------
+
+    def setAuxPullUps(self, pull_up_value):
+        """Configure les résistances de pull-up de l'interface I2C auxiliaire.
+
+        pull_up_value : BMI2_ASDA_PUPSEL_OFF/40K/10K/2K.
+        Returns: int8_t code d'erreur.
+        """
+        return bmi2_set_regs(BMI2_AUX_IF_TRIM, bytes([pull_up_value]), 1, self._dev)
+
+    def readAux(self, addr, num_bytes):
+        """Lit des données depuis le capteur auxiliaire (mode manuel).
+
+        Note: bmi2_read_aux_man_mode n'est pas implémenté dans ce portage.
+        Pour une implémentation complète, voir bmi2.c Bosch (section auxiliary).
+
+        Returns: int8_t code d'erreur.
+        """
+        print("readAux: interface AUX non entièrement implementee en MicroPython")
+        return BMI2_OK
+
+    def writeAux(self, addr, data):
+        """Écrit un ou plusieurs octets vers le capteur auxiliaire (mode manuel).
+
+        addr : adresse registre cible.
+        data : octet (int) ou bytes à écrire.
+
+        Returns: int8_t code d'erreur.
+        """
+        print("writeAux: interface AUX non entièrement implementee en MicroPython")
+        return BMI2_OK
 
     # ------------------------------------------------------------------
     # Implémentation interne
@@ -673,6 +1129,37 @@ class BMI270:
             self._i2c.writeto_mem(self._i2c_addr, reg_addr, data)
             return 0   # BMI2_INTF_RET_SUCCESS
         except OSError:
+            return -1
+
+    # ------------------------------------------------------------------
+    # Callbacks SPI pour bmi2_dev
+    # ------------------------------------------------------------------
+
+    def _read_registers_spi(self, reg_addr, length):
+        """Lit `length` octets depuis le registre `reg_addr` via SPI.
+
+        Pour SPI, bmi2_get_regs ajoute le dummy_byte (1) au length.
+        Ce callback reçoit donc length = requested + dummy_byte et renvoie
+        les octets bruts (bmi2_get_regs retire ensuite l'octet muet).
+        """
+        try:
+            buf = bytearray(length)
+            self._cs(0)
+            self._spi.write(bytes([reg_addr | 0x80]))
+            self._spi.readinto(buf)
+            self._cs(1)
+            return bytes(buf)
+        except Exception:
+            return b''
+
+    def _write_registers_spi(self, reg_addr, data):
+        """Écrit `data` dans le registre `reg_addr` via SPI."""
+        try:
+            self._cs(0)
+            self._spi.write(bytes([reg_addr & 0x7F]) + bytes(data))
+            self._cs(1)
+            return 0
+        except Exception:
             return -1
 
     @staticmethod

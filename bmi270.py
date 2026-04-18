@@ -110,19 +110,20 @@ BMI270_INT_ANY_MOT_MASK           = 0x40
 # ---------------------------------------------------------------------------
 # Blob firmware (bmi270_config_file)
 # ---------------------------------------------------------------------------
-# IMPORTANT : copier-coller ici le contenu de la variable
-#   const uint8_t bmi270_config_file[] = { ... };
-# depuis le fichier source C :
-#   src/bmi270_api/bmi270.c
-# en remplaçant les accolades C par un littéral bytes Python, par exemple :
+# Deux modes de chargement sont supportés :
 #
+# Mode 1 — fichier binaire sur le système de fichiers (recommandé, économise la RAM) :
+#   BMI270_CONFIG_FILE = "/firmware/bmi270_config.bin"   ← chemin par défaut ci-dessous
+#   Copier le fichier bmi270_config.bin sur la carte (ex. via mpremote ou Thonny).
+#   Le fichier est généré en extrayant les octets du tableau C :
+#     const uint8_t bmi270_config_file[] = { ... };  (src/bmi270_api/bmi270.c)
+#
+# Mode 2 — blob inline (si pas de système de fichiers disponible) :
 #   BMI270_CONFIG_FILE = bytes([0xc8, 0x2e, 0x00, 0x2e, ...])
+#   Copier-coller le contenu de bmi270_config_file[] depuis bmi270.c.
+#   Le blob fait ~8 Ko et sera conservé en flash (objet bytes immuable).
 #
-# Le blob fait environ 8 Ko -- il doit rester en flash (objet bytes)
-# et n'est chargé en RAM que pendant le transfert DMA.
-#
-# Le placeholder ci-dessous lèvera une ValueError à l'exécution pour
-# signaler que le blob n'a pas encore été rempli.
+# bmi270_init() détecte automatiquement le type (str → lecture fichier, bytes → inline).
 BMI270_CONFIG_FILE = "/firmware/bmi270_config.bin"
 
 # ---------------------------------------------------------------------------
